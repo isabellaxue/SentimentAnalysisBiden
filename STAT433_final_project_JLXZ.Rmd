@@ -1,0 +1,669 @@
+---
+title: "Final project: Joe Biden’s Tweets Sentiment Analysis"
+author: "Isabella Xue, Ruohe Zhou, Lexi Luo, Shuyuan Jia"
+output: html_document
+---
+
+<style type="text/css">
+  body{
+  font-size: 12pt;
+}
+h1.title {
+  font-size: 38px;
+  color: DarkBlue;
+  text-align: center;
+}
+h4.author { /* Header 4 - and the author and data headers use this too  */
+    font-size: 18px;
+  text-align: center;
+}
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+options(warn=-1)
+library(tidytext)
+library(data.table)
+library(lubridate)
+library(ggplot2)
+library(tidyverse)
+library(wordcloud)
+library(RColorBrewer)
+library(kableExtra)
+```
+
+### Introduction
+
+Social media platforms such as Twitter, Facebook, Instagram, etc., are commonly used to express emotions and opinions: many users use such platforms to discuss political events and current news. Many projects have already investigated sentiment analysis on President Donald Trump's tweets; however, few analyzed the sentiments on tweets of his former opponent, the current U.S. President Joe Biden. On April 25th, 2019, Biden announced that he would be running for the United State’s 2020 presidential elections. Many people tend to have the impression that Joe Biden is more emotionally stable than his opponent Trump, which may contribute to his success in the 2020 presidential election. Therefore, we aim to conduct sentiment analysis on Joe Biden’s tweets from Oct. 24th, 2007 to Nov. 1st, 2020, and explore whether President Biden's tweets represent his general public impressions by examining whether there is a difference in sentiment between pre-announcement and post-announcement.
+
+Based on sentiment analysis, we hypothesize that President Joe Biden’s tweets’ emotional intensity (positive and negative) remains the same before and after announcing running for the presidency.
+
+
+### Data
+
+>In this project, we use Joe Biden @JoeBiden Tweets (2007 - 2020) from Kaggle (https://www.kaggle.com/rohanrao/joe-biden-tweets). The dataset was compiled using Twitter API service (https://developer.twitter.com/en). Since our primary focus is to compare President Biden's Twitter sentiment before and after running for presidency, all tweets in the dataset were kept. The dataset includes the following variables: "id","timestamp" "url","tweet", "replies","retweets", "quotes", "likes".
+
+>Vopani. (2020, May 01). Joe Biden Tweets (2007 - 2020). Retrieved November 13, 2021, from https://www.kaggle.com/rohanrao/joe-biden-tweets
+
+```{r echo=FALSE}
+bitweet<- fread("JoeBidenTweets.csv") %>% as.tbl
+
+bitweet_pre <- bitweet %>%
+  filter(timestamp < '2019-04-25 00:00')
+text_df_pre <- tibble(tweet = 1:nrow(bitweet_pre), text = bitweet_pre$tweet)
+bitweet_post <- bitweet %>%
+  filter(timestamp > '2019-04-25 00:00')
+text_df_post <- tibble(tweet = 1:nrow(bitweet_post), text = bitweet_post$tweet)
+
+head(bitweet) %>%
+  kbl() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+
+We separated the dataset by the date President Biden announced running for presidency: April 25th, 2019. There are 1341 tweets before the announcement, and 4723 tweets after the announcement. Before we further analyze, we perform data cleaning, including removing all the HTML tags, the special characters,extra white space and stop words. Then we convert all letters into lowercase and implement the tokenization and lemmatization. 
+
+```{r include=FALSE}
+text_df_pre$text <- gsub("https\\S*", "", text_df_pre$text) 
+text_df_pre$text <-gsub("@\\S*", "", text_df_pre$text) 
+text_df_pre$text <-gsub("amp", "", text_df_pre$text) 
+text_df_pre$text <-gsub("[\r\n]", "", text_df_pre$text)
+text_df_pre$text <-gsub("[[:punct:]]", "", text_df_pre$text)
+text_df_pre$text <-gsub("the", "", text_df_pre$text)
+text_df_pre$text <-gsub("to", "", text_df_pre$text)
+text_df_pre$text <-gsub("and", "", text_df_pre$text)
+text_df_pre$text <-gsub("in", "", text_df_pre$text)
+text_df_pre$text <-gsub("a", "", text_df_pre$text)
+text_df_pre$text <-gsub("of", "", text_df_pre$text)
+text_df_pre$text <-gsub("is", "", text_df_pre$text)
+text_df_pre$text <-gsub("for", "", text_df_pre$text)
+text_df_pre$text <-gsub("on", "", text_df_pre$text)
+text_df_pre$text <-gsub("are", "", text_df_pre$text)
+text_df_pre$text <-gsub("at", "", text_df_pre$text)
+text_df_pre$text <-gsub("with", "", text_df_pre$text)
+text_df_pre$text <-gsub("from", "", text_df_pre$text)
+
+text_df_post$text <- gsub("https\\S*", "", text_df_post$text) 
+text_df_post$text <- gsub("@\\S*", "", text_df_post$text) 
+text_df_post$text <- gsub("amp", "", text_df_post$text) 
+text_df_post$text <- gsub("[\r\n]", "", text_df_post$text)
+text_df_post$text <- gsub("[[:punct:]]", "", text_df_post$text)
+text_df_post$text <-gsub("the", "", text_df_post$text)
+text_df_post$text <-gsub("to", "", text_df_post$text)
+text_df_post$text <-gsub("and", "", text_df_post$text)
+text_df_post$text <-gsub("in", "", text_df_post$text)
+text_df_post$text <-gsub("a", "", text_df_post$text)
+text_df_post$text <-gsub("of", "", text_df_post$text)
+text_df_post$text <-gsub("is", "", text_df_post$text)
+text_df_post$text <-gsub("for", "", text_df_post$text)
+text_df_post$text <-gsub("on", "", text_df_post$text)
+text_df_post$text <-gsub("are", "", text_df_post$text)
+text_df_post$text <-gsub("at", "", text_df_post$text)
+text_df_post$text <-gsub("with", "", text_df_post$text)
+text_df_post$text <-gsub("from", "", text_df_post$text)
+
+tword_pre  = text_df_pre %>% unnest_tokens(word, text)
+tword_post = text_df_post %>% unnest_tokens(word, text)
+```
+
+
+To examine keyword metadata of the tweets, we use word clouds:
+
+```{r echo=FALSE, fig.cap="Figure 1: Wordcloud of most frequent word post (right) and pre (left) announcement"}
+par(mfrow=c(1,2))
+words_pre <- tword_pre %>% count(word,sort=TRUE)
+words_post <- tword_post%>% count(word, sort=TRUE)
+wordcloud(words = words_pre$word, freq = words_pre$n, min.freq = 1,max.words=200, random.order=FALSE, rot.per=0.35,            colors=brewer.pal(8, "Dark2"))
+wordcloud(words = words_post$word, freq = words_post$n, min.freq = 1,max.words=200, random.order=FALSE, rot.per=0.35,            colors=brewer.pal(8, "Dark2"))
+```
+
+We observed that before running for presidency, the most frequent words that showed up in Biden's tweets were "biden", "president", "you", and "we". After the announcement of running for presidency, the most frequent words changed to "Trump" and "our", with"president" and "we" remained as highly frequent words. Considering that the tweets after running for presidency might contain more information related to his opponent Trump, It's possible that the tweets after running for presidency became less positive. 
+
+### Method
+
+The first lexicon method we used is **Bing** sentiment lexicon. The Bing lexicon helps us to  categorize words in a binary fashion into positive and negative categories. We define the emotion intensity as the following: (the number of negative words + the number of positive words)/total word number in each post. 
+
+Next, we used the **Loughran-McDonald** sentiment lexicon, which is a English sentiment lexicon created for use with financial documents. This lexicon labels words with six possible sentiments important in financial contexts: "negative", "positive", "litigious", "uncertainty", "constraining", or "superfluous". 
+
+We also implement **NRC** EMOTION lexicon sentiment analysis. NRC Emotion Lexicon is a list of English words and their associations with eight basic emotions including "anger", "fear", "anticipation", "trust", "surprise", "sadness", "joy", and "disgust." In addition to the Bing method, this method explores more specific emotion within positive and negative sentiment.
+
+To compare pre-announcement and post-announcement sentiment using each lexicon, we use **t-test** to see if the difference is significant. T-test is used to determine if there is a significant difference between the means of two groups. We used `unpaired` t test because we have larger sample size in post-announcement group. 
+
+We compare **proportions** of sentimental words in each tweet before and after announcement in plots and t-test because calculating the proportions instead of counting the numbers of sentimental words in each tweet would standardize the data.
+
+### Result
+
+#### Bing Sentiment Lexicon
+
+##### Overall emotion intensity (proportion of emotional related word in each tweet)
+
+```{r echo=FALSE}
+bing <- get_sentiments("bing") %>% 
+  mutate(neg= sentiment == "negative",
+         pos = sentiment =="positive")
+
+tword_bing_pre = tword_pre %>% 
+  left_join(bing) %>% 
+  group_by(tweet) %>% 
+  summarize(bingNeg = sum(neg, na.rm = T),
+            bingPos = sum(pos, na.rm = T),
+            bingWords = bingNeg + bingPos, 
+            bing = bingPos/(bingWords+.00000001))
+tword_bing_post = tword_post %>% 
+  left_join(bing) %>% 
+  group_by(tweet) %>% 
+  summarize(bingNeg = sum(neg, na.rm = T),
+            bingPos = sum(pos, na.rm = T),
+            bingWords = bingNeg + bingPos, 
+            bing = bingPos/(bingWords+.00000001))
+```
+
+
+```{r echo=FALSE}
+#post announcment sentiment intensity
+post_anounce <- tword_bing_post %>% 
+  left_join(text_df_post, by = 'tweet')
+
+k <- post_anounce %>%
+  mutate(word = strsplit(text, split = " "))
+
+tweet <- list(k$tweet)
+m <- c()
+for (i in 1:nrow(k)){
+  m = append(m, length(k$word[[i]]))
+}
+mtw = data.frame(tweet , m)
+
+colnames(mtw) <- c('tweet', 'm')
+
+intens <- post_anounce %>%
+  left_join(mtw, by = 'tweet')
+
+bitweet_post$idx <- seq(1, nrow(bitweet_post), 1)
+
+lik_idx <- bitweet_post %>%
+  select('idx', 'likes')
+
+colnames(lik_idx) <- c('tweet', 'likes')
+
+intensity <- intens %>%
+  mutate(intensity_prop = (bingNeg + bingPos)/m)
+
+inten_post <- intensity %>%
+  select(tweet, intensity_prop)
+
+likes <- lik_idx%>%
+  left_join(inten_post, by = 'tweet') %>%
+  select('likes', 'tweet', 'intensity_prop')
+```
+
+```{r echo=FALSE}
+#post announcment sentiment intensity
+pre_anounce <- tword_bing_pre %>% 
+  left_join(text_df_pre, by = 'tweet')
+
+k <- pre_anounce %>%
+  mutate(word = strsplit(text, split = " "))
+
+tweet <- list(k$tweet)
+m <- c()
+for (i in 1:nrow(k)){
+  m = append(m, length(k$word[[i]]))
+}
+mtw_pre = data.frame(tweet , m)
+
+colnames(mtw) <- c('tweet', 'm')
+colnames(mtw_pre) <- c('tweet', 'm')
+intens <- pre_anounce %>%
+  left_join(mtw_pre, by = 'tweet')
+
+bitweet_pre$idx <- seq(1, nrow(bitweet_pre), 1)
+
+lik_idx <- bitweet_pre %>%
+  select('idx', 'likes')
+
+colnames(lik_idx) <- c('tweet', 'likes')
+
+intensity <- intens %>%
+  mutate(intensity_prop = (bingNeg + bingPos)/m)
+
+inten_pre <- intensity %>%
+  select(tweet, intensity_prop)
+
+likes_pre<- lik_idx%>%
+  left_join(inten_post, by = 'tweet') %>%
+  select('likes', 'tweet', 'intensity_prop')
+
+```
+
+```{r echo=FALSE}
+#Overall sentiment intensity t-test
+t.test(likes$intensity_prop, likes_pre$intensity_prop)
+```
+
+The p-value for overall emotion intensity is bigger than the significance level 0.05, therefore we fail to reject null hypothesis and conclude that there is no significant difference between overall emotion intensity before and after the announcement.
+
+Next, we want to examine positive and negative sentiment word separately: 
+
+```{r echo=FALSE, fig.cap="Figure 2: Pre-announcement & Post-announcement Sentiment(Bing)"}
+require(gridExtra)
+data_bing_pre <- data.frame(sentiment = c('negative', 'positive'), 
+                        proportion = c(sum(tword_bing_pre$bingNeg)/nrow(tword_pre), 
+                                  sum(tword_bing_pre$bingPos)/nrow(tword_pre)))
+data_bing_post <- data.frame(sentiment = c('negative', 'positive'), 
+                        proportion = c(sum(tword_bing_post$bingNeg)/nrow(tword_post), 
+                                  sum(tword_bing_post$bingPos)/nrow(tword_post)))
+
+data_bing_post$Time <- 'post'
+data_bing_pre$Time <- 'pre'
+
+bing_bind <- rbind(data_bing_post, data_bing_pre)
+ggplot(bing_bind, aes(x = sentiment, y = proportion, color = Time)) + geom_point()+ ggtitle('Pre-announcement & Post-announcement Sentiment(Bing)') 
+```
+
+From figure 2, we can see that the proportion of positive words in tweets after announcement largely increases, and the difference of proportions of negative words is much smaller. Therefore, we want to examine positive and negative emotion intensity separately using t-test. 
+
+##### Positive emotion intensity (proportion of emotional related word in each tweet)
+
+```{r echo=FALSE}
+#post
+k <- post_anounce %>%
+  mutate(word = strsplit(text, split = " "))
+
+tweet <- list(k$tweet)
+m <- c()
+for (i in 1:nrow(k)){
+  m = append(m, length(k$word[[i]]))
+}
+mtw = data.frame(tweet , m)
+
+colnames(mtw) <- c('tweet', 'm')
+
+intens <- post_anounce %>%
+  left_join(mtw, by = 'tweet')
+
+bitweet_post$idx <- seq(1, nrow(bitweet_post), 1)
+
+lik_idx <- bitweet_post %>%
+  select('idx', 'likes')
+
+colnames(lik_idx) <- c('tweet', 'likes')
+
+intensity <- intens %>%
+  mutate(intensity_prop = (bingPos)/m)
+
+inten_post <- intensity %>%
+  select(tweet, intensity_prop)
+
+likes <- lik_idx%>%
+  left_join(inten_post, by = 'tweet') %>%
+  select('likes', 'tweet', 'intensity_prop')
+
+#pre
+pre_anounce <- tword_bing_pre %>% 
+  left_join(text_df_pre, by = 'tweet')
+
+k <- pre_anounce %>%
+  mutate(word = strsplit(text, split = " "))
+
+tweet <- list(k$tweet)
+m <- c()
+for (i in 1:nrow(k)){
+  m = append(m, length(k$word[[i]]))
+}
+mtw_pre = data.frame(tweet , m)
+
+colnames(mtw_pre) <- c('tweet', 'm')
+
+intens <- pre_anounce %>%
+  left_join(mtw_pre, by = 'tweet')
+
+bitweet_pre$idx <- seq(1, nrow(bitweet_pre), 1)
+
+lik_idx <- bitweet_pre %>%
+  select('idx', 'likes')
+
+colnames(lik_idx) <- c('tweet', 'likes')
+
+intensity <- intens %>%
+  mutate(intensity_prop = (bingPos)/m)
+
+inten_pre <- intensity %>%
+  select(tweet, intensity_prop)
+
+likes_pre<- lik_idx%>%
+  left_join(inten_post, by = 'tweet') %>%
+  select('likes', 'tweet', 'intensity_prop')
+
+t.test(likes$intensity_prop, likes_pre$intensity_prop)
+
+```
+
+In contrast to the graph, the p-value of t test for positive emotion intensity is bigger than .05, which indicates that there is no significant difference between positive emotion intensity before and after the announcement. 
+
+
+##### Negative emotion intensity (proportion of emotional related word in each tweet)
+
+```{r echo=FALSE}
+#post
+post_anounce <- tword_bing_post %>% 
+  left_join(text_df_post, by = 'tweet')
+
+k <- post_anounce %>%
+  mutate(word = strsplit(text, split = " "))
+
+tweet <- list(k$tweet)
+m <- c()
+for (i in 1:nrow(k)){
+  m = append(m, length(k$word[[i]]))
+}
+mtw = data.frame(tweet , m)
+
+colnames(mtw) <- c('tweet', 'm')
+
+intens <- post_anounce %>%
+  left_join(mtw, by = 'tweet')
+
+bitweet_post$idx <- seq(1, nrow(bitweet_post), 1)
+
+lik_idx <- bitweet_post %>%
+  select('idx', 'likes')
+
+colnames(lik_idx) <- c('tweet', 'likes')
+
+intensity <- intens %>%
+  mutate(intensity_prop = (bingNeg)/m)
+
+inten_post <- intensity %>%
+  select(tweet, intensity_prop)
+
+likes <- lik_idx%>%
+  left_join(inten_post, by = 'tweet') %>%
+  select('likes', 'tweet', 'intensity_prop')
+
+#pre
+pre_anounce <- tword_bing_pre %>% 
+  left_join(text_df_pre, by = 'tweet')
+
+k <- pre_anounce %>%
+  mutate(word = strsplit(text, split = " "))
+
+tweet <- list(k$tweet)
+m <- c()
+for (i in 1:nrow(k)){
+  m = append(m, length(k$word[[i]]))
+}
+mtw_pre = data.frame(tweet , m)
+
+colnames(mtw_pre) <- c('tweet', 'm')
+
+intens <- pre_anounce %>%
+  left_join(mtw_pre, by = 'tweet')
+
+bitweet_pre$idx <- seq(1, nrow(bitweet_pre), 1)
+
+lik_idx <- bitweet_pre %>%
+  select('idx', 'likes')
+
+colnames(lik_idx) <- c('tweet', 'likes')
+
+intensity <- intens %>%
+  mutate(intensity_prop = (bingNeg)/m)
+
+inten_pre <- intensity %>%
+  select(tweet, intensity_prop)
+
+likes_pre<- lik_idx%>%
+  left_join(inten_post, by = 'tweet') %>%
+  select('likes', 'tweet', 'intensity_prop')
+
+t.test(likes$intensity_prop, likes_pre$intensity_prop)
+```
+
+The same result also can be seen from t-test of negative emotion intensity: no significant difference between pre and post announcement proportion. 
+
+#### Loughran-Mcdonald Lexicon
+
+We then analyze sentiment using the Loughran-Mcdonald Lexicon:
+
+```{r echo=FALSE}
+lough = get_sentiments("loughran") %>% 
+  rename(lough = sentiment)
+
+lough = lough %>% 
+  mutate(value = 1) %>% 
+  pivot_wider(word, names_from = lough)
+
+loughFeat_pre = tword_pre %>% 
+  left_join(lough) %>% 
+  group_by(tweet) %>% 
+  summarize(
+    neg = sum(negative, na.rm=T),
+    pos = sum(positive, na.rm=T),
+    Uncertain = sum(uncertainty, na.rm=T),
+    litious = sum(litigious, na.rm=T),
+    Constraining = sum(constraining, na.rm=T),
+    superfluous = sum(superfluous, na.rm=T))
+
+loughFeat_post = tword_post %>% 
+  left_join(lough) %>% 
+  group_by(tweet) %>% 
+  summarize(
+    neg = sum(negative, na.rm=T),
+    pos = sum(positive, na.rm=T),
+    Uncertain = sum(uncertainty, na.rm=T),
+    litious = sum(litigious, na.rm=T),
+    Constraining = sum(constraining, na.rm=T),
+    superfluous = sum(superfluous, na.rm=T))
+
+```
+
+```{r echo=FALSE, fig.cap="Figure 3: Pre-announcement & Post-announcement Sentiment(Loughran)"}
+data_lough_pre <- data.frame(sentiment = c('neg','pos','Uncertain','litigious','Constraining','superfluous'), proportion =
+                         c(sum(loughFeat_pre$neg, na.rm=T)/nrow(tword_pre),
+                           sum(loughFeat_pre$pos, na.rm=T)/nrow(tword_pre),
+                           sum(loughFeat_pre$Uncertain, na.rm=T)/nrow(tword_pre),
+                           sum(loughFeat_pre$litious, na.rm=T)/nrow(tword_pre),
+                           sum(loughFeat_pre$Constraining, na.rm=T)/nrow(tword_pre),
+                           sum(loughFeat_pre$superfluous, na.rm=T)/nrow(tword_pre)))
+data_lough_pre1 <- 
+data_lough_post <- data.frame(sentiment = c('neg','pos','Uncertain','litigious','Constraining','superfluous'), proportion =
+                         c(sum(loughFeat_post$neg, na.rm=T)/nrow(tword_post),
+                           sum(loughFeat_post$pos, na.rm=T)/nrow(tword_post),
+                           sum(loughFeat_post$Uncertain, na.rm=T)/nrow(tword_post),
+                           sum(loughFeat_post$litious, na.rm=T)/nrow(tword_post),
+                           sum(loughFeat_post$Constraining, na.rm=T)/nrow(tword_post),
+                           sum(loughFeat_post$superfluous, na.rm=T)/nrow(tword_post)))
+
+data_lough_post$Time <- 'post'
+data_lough_pre$Time <- 'pre'
+
+loughran_bind <- rbind(data_lough_post, data_lough_pre)
+ggplot(loughran_bind, aes(x = sentiment, y = proportion, color = Time)) + geom_point()+ ggtitle('Pre-announcement & Post-announcement Sentiment(Loughran)') 
+```
+
+In figure 3, words with negative sentiment seem to show up more frequently in tweets after the announcement of running for presidency and there is a slight decrease in positive sentiment proportion after announcement. Although the result of positive and negative sentiment words is **consistent** with that of NRC lexicon in next section, we decide not to further analyze the difference using t-test because the Loughran lexicon was designed to analyze financial document sentiment, therefore the result might not be justifiable for this project.  
+
+#### NRC Lexicon
+
+In this section, we used the NRC method, which has a more detailed and specific categorization of sentimental words.
+
+```{r echo=FALSE}
+nrc = get_sentiments("nrc") %>% 
+  rename(nrc = sentiment)
+
+nrcWide = nrc %>% 
+  mutate(value = 1) %>% 
+  pivot_wider(word, names_from = nrc, values_fill = 0)
+
+nrcFeat_pre = tword_pre %>% 
+  left_join(nrcWide) %>% 
+  group_by(tweet) %>% 
+  summarize(
+    nrcTrust = sum(trust, na.rm=T),
+    nrcFear = sum(fear, na.rm=T),
+    nrcNegative = sum(negative, na.rm=T),
+    nrcSadness = sum(sadness, na.rm=T),
+    nrcAnger = sum(anger, na.rm=T),
+    nrcSurprise = sum(surprise, na.rm=T),
+    nrcPositive = sum(positive, na.rm=T),
+    nrcDisgust = sum(disgust, na.rm=T),
+    nrcJoy = sum(joy, na.rm=T),
+    nrcanticipation = sum(anticipation, na.rm=T)
+  )
+nrcFeat_post = tword_post %>% 
+  left_join(nrcWide) %>% 
+  group_by(tweet) %>% 
+  summarize(
+    nrcTrust = sum(trust, na.rm=T),
+    nrcFear = sum(fear, na.rm=T),
+    nrcNegative = sum(negative, na.rm=T),
+    nrcSadness = sum(sadness, na.rm=T),
+    nrcAnger = sum(anger, na.rm=T),
+    nrcSurprise = sum(surprise, na.rm=T),
+    nrcPositive = sum(positive, na.rm=T),
+    nrcDisgust = sum(disgust, na.rm=T),
+    nrcJoy = sum(joy, na.rm=T),
+    nrcanticipation = sum(anticipation, na.rm=T)
+  )
+
+```
+
+```{r echo=FALSE}
+data_nrc_pre <- data.frame(sentiment = c("Trust","Fear","Negative","Sadness","Anger","Surprise","Positive","Disgust","Joy","anticipation"), proportion = c(sum(nrcFeat_pre$nrcTrust)/nrow(tword_pre), 
+                                    sum(nrcFeat_pre$nrcFear)/nrow(tword_pre), 
+                                    sum(nrcFeat_pre$nrcNegative)/nrow(tword_pre), 
+                                    sum(nrcFeat_pre$nrcSadness)/nrow(tword_pre), 
+                                    sum(nrcFeat_pre$nrcAnger)/nrow(tword_pre), 
+                                    sum(nrcFeat_pre$nrcSurprise)/nrow(tword_pre), 
+                                    sum(nrcFeat_pre$nrcPositive)/nrow(tword_pre), 
+                                    sum(nrcFeat_pre$nrcDisgust)/nrow(tword_pre), 
+                                    sum(nrcFeat_pre$nrcJoy)/nrow(tword_pre), 
+                                    sum(nrcFeat_pre$nrcanticipation)/nrow(tword_pre)))
+data_nrc_post <- data.frame(sentiment = c("Trust","Fear","Negative","Sadness","Anger","Surprise","Positive","Disgust","Joy","anticipation"), proportion = c(sum(nrcFeat_pre$nrcTrust)/nrow(tword_post), 
+                                    sum(nrcFeat_post$nrcFear)/nrow(tword_post), 
+                                    sum(nrcFeat_post$nrcNegative)/nrow(tword_post), 
+                                    sum(nrcFeat_post$nrcSadness)/nrow(tword_post), 
+                                    sum(nrcFeat_post$nrcAnger)/nrow(tword_post), 
+                                    sum(nrcFeat_post$nrcSurprise)/nrow(tword_post), 
+                                    sum(nrcFeat_post$nrcPositive)/nrow(tword_post), 
+                                    sum(nrcFeat_post$nrcDisgust)/nrow(tword_post), 
+                                    sum(nrcFeat_post$nrcJoy)/nrow(tword_post), 
+                                    sum(nrcFeat_post$nrcanticipation)/nrow(tword_post)))
+
+#Overall sentiment intensity t-test
+t.test(data_nrc_pre$proportion, data_nrc_post$proportion)
+```
+
+We ran t-test on the overall sentiment proportions (include all kinds of sentiment) and found that there is no significant difference between the emotion intensity of tweets post-announcement and pre-announcement.
+
+```{r echo=FALSE, fig.cap="Figure 4: Pre-announcement & Post-announcement Sentiment(NRC)"}
+data_nrc_post$Time <- 'post'
+data_nrc_pre$Time <- 'pre'
+nrc_bind <- rbind(data_nrc_post, data_nrc_pre)
+ggplot(nrc_bind, aes(x = sentiment, y = proportion, color = Time)) + geom_point()+ ggtitle('Pre-announcement & Post-announcement Sentiment(NRC)') + coord_flip()
+```
+
+
+In figure 4, words with negative sentiment including fear and anger seem to show up more frequently on tweets after the annoucement of running for presidency, while positive sentiment including joy and trust show up less frequently. We also noticed that the proportions of sentiment like Trust, Fear, and Disgust in each tweet before announcement seem to have an obvious difference with that of after announcement, therefore we ran unpaired t test and made a violin plot for each of the three sentiment.
+
+##### Emotion: Trust
+
+First, we looked at trust related word comparison. Since there is a huge difference between trust related words frequency before and after announcement, we're curious to see what words are classified as trust-related: 
+
+```{r echo=FALSE}
+a <- tword_pre %>% 
+  left_join(nrcWide) %>% 
+  group_by(tweet)
+
+unique(a$word[a$trust == '1'])
+
+```
+
+Next, we implemented t-test and compare the proportion of trust-related word in violin plot:
+
+```{r echo=FALSE}
+trust_pre <- data.frame(mtw_pre, nrcFeat_pre$nrcTrust) %>%
+  mutate(trust_proportion = nrcFeat_pre.nrcTrust/m)
+trust_post <- data.frame(mtw, nrcFeat_post$nrcTrust) %>%
+  mutate(trust_proportion = nrcFeat_post.nrcTrust/m)
+t.test(trust_pre$trust_proportion, trust_post$trust_proportion) 
+```
+
+```{r echo=FALSE, fig.cap="Figure 5: Proportion of Trust related words in each tweet (NRC)"}
+trust_pre$pre_or_post <- c(as.character(rep('pre', times=nrow(trust_pre))))
+trust_post$pre_or_post <- c(as.character(rep('post', times = nrow(trust_post))))
+
+colnames(trust_pre) <- c('tweet', 'm', 'trust', 'trust_prop', 'pre_or_post')
+colnames(trust_post) <- c('tweet', 'm', 'trust', 'trust_prop', 'pre_or_post')
+trust_data <- rbind(trust_pre, trust_post)
+library(ggplot2)
+library(cowplot)
+library(ggpubr)
+library(dplyr)
+give.n <- function(x){
+   return(c(y = mean(x), label = length(x)))
+}
+ggplot(trust_data, aes(x = pre_or_post, y = trust_prop)) + xlab("Time") + ylab('Proportion of Trust related words in each tweet (NRC)') + geom_violin() + geom_boxplot(width=0.1)+ stat_compare_means(method = "t.test")+ stat_summary(fun.data = give.n, geom = "text") + stat_summary(fun.data = give.n, geom = "text") 
+
+```
+
+From t-test and figure 5, we can see that trust proportions of pre-announcement and post-announcement does not share the same means. But it is important to note that the proportion of both pre and post announcement trust-related words in each tweet are relatively small. And the proportion of trust-related words after announcement in each tweet has more outliers with relatively high proportions, and the majority of proportions tend to be higher than that of pre-announcement.
+
+##### Emotion: Fear
+
+Next, we looked at fear-related word proportion:
+
+```{r echo=FALSE, fig.cap="Figure 6: Proportion of Fear related words in each tweet (NRC)"}
+fear_pre <- data.frame(mtw_pre, nrcFeat_pre$nrcFear) %>%
+  mutate(fear_proportion = nrcFeat_pre.nrcFear/m)
+fear_post <- data.frame(mtw, nrcFeat_post$nrcFear) %>%
+  mutate(fear_proportion = nrcFeat_post.nrcFear/m)
+fear_pre$pre_or_post <- c(as.character(rep('pre', times=nrow(fear_pre))))
+fear_post$pre_or_post <- c(as.character(rep('post', times = nrow(fear_post))))
+colnames(fear_pre) <- c('tweet', 'm', 'fear', 'fear_prop', 'pre_or_post')
+colnames(fear_post) <- c('tweet', 'm', 'fear', 'fear_prop', 'pre_or_post')
+fear_data <- rbind(fear_pre, fear_post)
+ggplot(fear_data, aes(x = pre_or_post, y = fear_prop)) + xlab("Time") + ylab('Proportion of Fear related words in each tweet (NRC)') + geom_violin() + geom_boxplot(width=0.1)+ stat_compare_means(method = "t.test")+ stat_summary(fun.data = give.n, geom = "text") + stat_summary(fun.data = give.n, geom = "text")
+
+t.test(fear_pre$fear_prop, fear_post$fear_prop)
+```
+
+The true difference in means of fear proportions of pre-announcement and post-announcement does not equal to 0 since p-value is smaller than 0.05. The proportion of Fear related words in each tweet not only has more outliers, but also has an obvious concentration between 0 and 0.5, while the majority of fear proportions in pre-announcement concentrates between 0 and 0.2.
+
+##### Emotion: Disgust
+
+We also explore disgust-related word proportion:
+
+```{r echo=FALSE, fig.cap="Figure 7: Proportion of Disgust related words in each tweet (NRC)"}
+dis_pre <- data.frame(mtw_pre, nrcFeat_pre$nrcDisgust) %>%
+  mutate(dis_proportion = nrcFeat_pre.nrcDisgust/m)
+dis_post <- data.frame(mtw, nrcFeat_post$nrcDisgust) %>%
+  mutate(dis_proportion = nrcFeat_post.nrcDisgust/m)
+
+dis_pre$pre_or_post <- c(as.character(rep('pre', times=nrow(dis_pre))))
+dis_post$pre_or_post <- c(as.character(rep('post', times = nrow(dis_post))))
+colnames(dis_pre) <- c('tweet', 'm', 'disgust', 'dis_prop', 'pre_or_post')
+colnames(dis_post) <- c('tweet', 'm', 'disgust', 'dis_prop', 'pre_or_post')
+dis_data <- rbind(dis_pre, dis_post)
+ggplot(dis_data, aes(x = pre_or_post, y = dis_prop)) + xlab("Time") + ylab('Proportion of Disgust related words in each tweet (NRC)') + geom_violin() + geom_boxplot(width=0.1)+ stat_compare_means(method = "t.test")+ stat_summary(fun.data = give.n, geom = "text") + stat_summary(fun.data = give.n, geom = "text")
+
+
+t.test(dis_pre$dis_prop, dis_post$dis_prop)
+```
+
+In figure 7, the differences of disgust-related words proportions of pre-announcement and post-announcement were not as obvious as the former two sentiment that we analyzed (Trust and Fear). But it's still clear to see that the proportion of disgust related words in each tweet after announcement was higher than that of pre-announcement from p-value of t-test.
+
+### Conclusion
+
+In conclusion, we found that the emotional intensity proportion in general and both positive and negative does not differ significantly before and after announcement using the Bing lexicon method. However, some specific emotional related words such as trust, fear, disgust displayed a significant difference using the NRC lexicon analysis. 
+
+From the word clouds of both pre-announcement and post-announcement, we can see the most frequent words were very similar (figure 1). Moreover, the Bing lexicon analysis showed no significant difference in general emotional intensity and both positive and negative sentiments between pre-announcement and post-announcement tweets (figure 2). The Loughran-McDonald sentiment lexicon further explored the sentiments in a financial aspect with consistent result compared to NRC analysis (figure 3). Lastly, we employed the NRC dictionary which investigated the emotions in a more detailed fashion. Our results indicated that overall sentiment showed no difference (figure 4); however, specific emotions such as trust (figure 5), fear (figure 6), and disgust (figure 7) displayed statistically significant differences.
+
+For limitations, our data is imbalanced with more tweets after announcement (4723 tweets) and less tweets before announcement (1341 tweets). Furthermore, we did analysis with Bing, Loughran-McDonald, and NRC lexicon; therefore, we were limited to words in those dictionary, and since emotional words show up very infrequently in tweets, our dataset is relatively sparse when conducting analysis. Lastly, the sentiment analysis were done on a word to word basis; therefore, the meaning and the context of the sentence could be ignored when each word is analyzed alone.
+
+For future directions, we would like to explore the dataset further by adding time classifiers such as morning or afternoon tweets, so we could analyze the sentiment difference comparing tweets before and after announcement with accounts to time. Furthermore, our data is limited to Joe Biden’s personal account tweets from October 24th, 2007 to November 1st, 2020; therefore, we would like to get more recent tweets since November 1st, 2020 to conduct a more robust and conclusive analysis. Lastly, we would also like to combine current dataset with Joe Biden’s Presidential account @POTUS to see the overall sentiment change of Joe Biden. 
+
+
